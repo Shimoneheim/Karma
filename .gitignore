@@ -1,0 +1,11 @@
+/docs/
+/memory-bank/
+/Karma/node_modules/
+/Karma/dist/
+.DS_Store
+*.local
+.npm
+*.log
+/.agents/
+/.vite/
+testlist.md
