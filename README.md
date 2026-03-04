@@ -1,5 +1,14 @@
 # 🏫 Karma - Sınav Oturma Planı Oluşturucu
 
+<div align="center">
+  <br />
+  <a href="https://shimoneheim.github.io/Karma/">
+    <img src="https://img.shields.io/badge/HEMEN%20DENEYİMLE-%234F46E5?style=for-the-badge&logo=rocket&logoColor=white" alt="Hemen Deneyimle" height="40" />
+  </a>
+  <p><i>Karmaşık listeleri saniyeler içinde profesyonel oturma planlarına dönüştürün.</i></p>
+  <br />
+</div>
+
 Eğer bir okulda yönetici veya öğretmenseniz, deneme sınavları öncesi öğrencileri salonlara dağıtmanın, "aynı sınıftakiler yan yana gelmesin", "büyükler arka arkaya düşmesin" gibi ince kuralları gözeterek oturma planı hazırlamanın ne kadar büyük bir baş ağrısı olduğunu bilirsiniz. Bu süreç benim de saatlerimi alıyordu ve en ufak bir değişiklikte tüm listeyi baştan yapmak zorunda kalıyordum.
 
 İşte tam da bu yüzden **Karma**'yı geliştirdim. Artık saatlerce Excel tablolarıyla veya kağıt kalemle boğuşmaya gerek yok.
