@@ -17,7 +17,6 @@ import type { PdfSettings } from "./pdfSettings";
 const MAX_TEXT_LENGTH = 200;
 const MAX_RAW_INPUT_LENGTH = 500_000;
 const MAX_SALONS = 100;
-const MAX_SEATS = 10_000;
 const MAX_TEMPLATES = 100;
 export const MAX_HISTORY_ITEMS = 20;
 
@@ -27,6 +26,10 @@ export const SALON_LIMITS = {
   minColumns: 2,
   maxColumns: 8,
 } as const;
+
+// Largest seat list a valid layout can produce (two seats per desk), so saved plans are never truncated.
+const MAX_SEATS =
+  MAX_SALONS * SALON_LIMITS.maxRows * SALON_LIMITS.maxColumns * 2;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -207,5 +210,22 @@ export function safeSetItem(key: string, value: string): boolean {
   } catch (err) {
     console.warn(`Could not save "${key}" to localStorage`, err);
     return false;
+  }
+}
+
+/** Reads can throw too when storage is blocked by the browser; treat that as "nothing stored". */
+export function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Storage unavailable: nothing to remove.
   }
 }

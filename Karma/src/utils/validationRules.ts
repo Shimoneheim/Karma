@@ -20,8 +20,6 @@ export function checkViolations(
     maxGrade = Math.max(...allStudents.map(s => s.grade));
   }
   const isHighSchool = maxGrade >= 9;
-  const upperGrades = isHighSchool ? [11, 12] : [7, 8]; // Include 7 and 8 for middle school
-  const highestGrade = isHighSchool ? 12 : 8;
 
   for (const seat of seats) {
     if (!seat.student) continue;

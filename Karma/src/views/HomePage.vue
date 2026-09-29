@@ -261,7 +261,7 @@
 
         <SettingsDrawer
           :isOpen="isSettingsOpen"
-          :settings="appSettings"
+          v-model:settings="appSettings"
           :savedTemplates="savedTemplates"
           :selectedTemplateId="selectedTemplateId"
           :salonCapacity="salonCapacity"
@@ -310,7 +310,11 @@ import {
   sanitizeAppSettings,
   saveAppSettings,
 } from "@/utils/appSettings";
-import { sanitizeRawInput } from "@/utils/dataSanitizers";
+import {
+  safeGetItem,
+  safeSetItem,
+  sanitizeRawInput,
+} from "@/utils/dataSanitizers";
 import {
   addHistoryEntry,
   clearHistory,
@@ -420,11 +424,11 @@ watch(
 
 const toggleTheme = () => {
   isDarkMode.value = !isDarkMode.value;
-  localStorage.setItem("theme", isDarkMode.value ? "dark" : "light");
+  safeSetItem("theme", isDarkMode.value ? "dark" : "light");
 };
 
 onMounted(() => {
-  const savedTheme = localStorage.getItem("theme");
+  const savedTheme = safeGetItem("theme");
   if (savedTheme === "dark") {
     isDarkMode.value = true;
   } else if (
@@ -498,18 +502,33 @@ const parseConstraints = (text?: string): StudentConstraint[] => {
   return result;
 };
 
+// Bumped whenever something else takes over the plan view (e.g. restoring a
+// history entry) so a generation that finishes afterwards does not overwrite it.
+let planRequestId = 0;
+
 const generatePlan = async () => {
   isGenerating.value = true;
   isShuffling.value = true;
   successMsg.value = "";
   warningMsg.value = "";
 
+  const requestId = ++planRequestId;
+  const inputAtStart = rawInput.value;
+  // The page stays interactive while the plan is computed, so the user may
+  // edit the list or restore another plan in the meantime.
+  const isStale = () => {
+    if (requestId !== planRequestId) return true;
+    if (rawInput.value !== inputAtStart) {
+      isPlanReady.value = false;
+      return true;
+    }
+    return false;
+  };
+
   try {
     const students = parseStudentList(rawInput.value);
     if (students.length === 0) {
       alert("Geçerli öğrenci bulunamadı. Formatı kontrol edin!");
-      isGenerating.value = false;
-      isShuffling.value = false;
       return;
     }
 
@@ -554,6 +573,7 @@ const generatePlan = async () => {
       generatedSalons.value = sanitizedSalons.map((salon) => ({ ...salon }));
       isPlanReady.value = true;
       await new Promise((resolve) => setTimeout(resolve, 80));
+      if (isStale()) return;
     }
 
     isInternalSettingsUpdate.value = true;
@@ -570,6 +590,7 @@ const generatePlan = async () => {
         studentConstraints: constraints,
         lockedSeats: generatedSeats.value,
       });
+    if (isStale()) return;
 
     generatedSeats.value = seats;
     generatedUnassigned.value = unassigned;
@@ -587,16 +608,14 @@ const generatePlan = async () => {
         successMsg.value = "";
       }, 5000);
     }
-
-    setTimeout(() => {
-      isInternalSettingsUpdate.value = false;
-    }, 0);
   } catch (err: any) {
     alert("Plan oluşturulurken hata oluştu: " + err.message);
-    isInternalSettingsUpdate.value = false;
   } finally {
     isGenerating.value = false;
     isShuffling.value = false;
+    setTimeout(() => {
+      isInternalSettingsUpdate.value = false;
+    }, 0);
   }
 };
 
@@ -604,30 +623,41 @@ const generatePlan = async () => {
 // loaded on first use instead of being part of the initial page load.
 const loadPdfGenerator = () => import("@/utils/pdfGenerator");
 
-const downloadPlan = async () => {
-  const { generateSeatingPDF } = await loadPdfGenerator();
-  generateSeatingPDF(
-    generatedSeats.value,
-    generatedUnassigned.value,
-    appSettings.value.pdf,
-    generatedSalons.value,
-  );
+const downloadPdf = async (
+  seats: Seat[],
+  unassigned: Student[],
+  salons: SalonLayout[],
+) => {
+  try {
+    const { generateSeatingPDF } = await loadPdfGenerator();
+    generateSeatingPDF(seats, unassigned, appSettings.value.pdf, salons);
+  } catch (err: unknown) {
+    // Most often a stale tab whose PDF chunk was replaced by a newer deploy.
+    const message = err instanceof Error ? err.message : String(err);
+    alert(
+      "PDF oluşturulamadı. Sayfayı yenileyip tekrar deneyin.\n\n" + message,
+    );
+  }
 };
 
-const downloadHistoryItem = async (item: SeatingHistoryItem) => {
-  const { generateSeatingPDF } = await loadPdfGenerator();
-  generateSeatingPDF(
+const downloadPlan = () =>
+  downloadPdf(
+    generatedSeats.value,
+    generatedUnassigned.value,
+    generatedSalons.value,
+  );
+
+const downloadHistoryItem = (item: SeatingHistoryItem) =>
+  downloadPdf(
     item.seats,
     item.unassigned,
-    appSettings.value.pdf,
     item.salons || normalizeSalons(appSettings.value.salons),
   );
-};
 
 const saveCurrentPlanToHistory = () => {
   if (!isPlanReady.value) return;
 
-  historyItems.value = addHistoryEntry(
+  const nextHistory = addHistoryEntry(
     rawInput.value,
     JSON.parse(JSON.stringify(generatedSeats.value)),
     JSON.parse(JSON.stringify(generatedUnassigned.value)),
@@ -635,7 +665,14 @@ const saveCurrentPlanToHistory = () => {
     generatedQualityScore.value,
     generatedDeadlockResolved.value,
   );
-  activeHistoryId.value = historyItems.value[0].id;
+  if (!nextHistory) {
+    alert(
+      "Plan geçmişe kaydedilemedi: tarayıcı depolama alanı dolu. Eski oturumları temizleyip tekrar deneyin.",
+    );
+    return;
+  }
+  historyItems.value = nextHistory;
+  activeHistoryId.value = nextHistory[0].id;
 
   successMsg.value = "Düzenlemeler geçmişe yeni bir oturum olarak kaydedildi.";
   setTimeout(() => {
@@ -775,6 +812,8 @@ const handleDrop = async (event: DragEvent) => {
 
 
 const restoreFromHistory = (entry: SeatingHistoryItem) => {
+  planRequestId++;
+  isShuffling.value = false;
   isRestoringHistory.value = true;
   activeHistoryId.value = entry.id;
   rawInput.value = entry.rawInput;
@@ -813,11 +852,13 @@ const exportDataJSON = () => {
     rawInput: rawInput.value,
   };
 
-  const dataStr =
-    "data:text/json;charset=utf-8," +
-    encodeURIComponent(JSON.stringify(backupData, null, 2));
+  // A Blob URL (unlike a data: URL) has no length limit, so large histories still export.
+  const blob = new Blob([JSON.stringify(backupData, null, 2)], {
+    type: "application/json",
+  });
+  const blobUrl = URL.createObjectURL(blob);
   const downloadAnchorNode = document.createElement("a");
-  downloadAnchorNode.setAttribute("href", dataStr);
+  downloadAnchorNode.setAttribute("href", blobUrl);
   downloadAnchorNode.setAttribute(
     "download",
     `Karma_Yedek_${new Date().toISOString().split("T")[0]}.json`,
@@ -825,6 +866,7 @@ const exportDataJSON = () => {
   document.body.appendChild(downloadAnchorNode); // required for firefox
   downloadAnchorNode.click();
   downloadAnchorNode.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
 
   successMsg.value = "Tüm verileriniz başarıyla indirildi.";
   setTimeout(() => {
@@ -861,8 +903,11 @@ const handleImportJSON = (event: Event) => {
         isInternalSettingsUpdate.value = true;
         appSettings.value = sanitizeAppSettings(backup.appSettings);
       }
+      let historyNotSaved = false;
       if (backup.historyItems) {
-        historyItems.value = replaceHistory(backup.historyItems);
+        const importedHistory = replaceHistory(backup.historyItems);
+        if (importedHistory) historyItems.value = importedHistory;
+        else historyNotSaved = true;
       }
       if (backup.savedTemplates) {
         savedTemplates.value = replaceTemplates(backup.savedTemplates);
@@ -877,14 +922,19 @@ const handleImportJSON = (event: Event) => {
       }, 5000);
       isPlanReady.value = false;
 
-      setTimeout(() => {
-        isInternalSettingsUpdate.value = false;
-      }, 0);
-    } catch (err) {
+      if (historyNotSaved) {
+        alert(
+          "Geçmiş oturumlar içe aktarılamadı: tarayıcı depolama alanı dolu. Diğer veriler yüklendi.",
+        );
+      }
+    } catch {
       alert("Yedek dosyası okunurken hata oluştu. Geçersiz JSON formatı.");
     } finally {
       // Clear input so the same file can be selected again
       target.value = "";
+      setTimeout(() => {
+        isInternalSettingsUpdate.value = false;
+      }, 0);
     }
   };
   reader.readAsText(file);

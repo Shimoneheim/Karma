@@ -6,6 +6,7 @@ import {
 } from "./seatingAlgorithm";
 import { defaultPdfSettings, type PdfSettings } from "./pdfSettings";
 import {
+  safeGetItem,
   safeJsonParse,
   safeSetItem,
   sanitizePdfSettings,
@@ -60,7 +61,7 @@ export function sanitizeAppSettings(value: unknown): AppSettings {
 export function loadAppSettings(): AppSettings {
   if (typeof window === "undefined") return defaultAppSettings();
   return sanitizeAppSettings(
-    safeJsonParse(localStorage.getItem(APP_SETTINGS_STORAGE_KEY)),
+    safeJsonParse(safeGetItem(APP_SETTINGS_STORAGE_KEY)),
   );
 }
 

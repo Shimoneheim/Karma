@@ -124,7 +124,7 @@ class SeatingEngine {
       this.distributeToSalons(desks, pairs);
 
       // 5. Post Optimization
-      this.optimizeDeskArrangements(desks, seats);
+      this.optimizeDeskArrangements(desks);
 
       const unassigned: Student[] = availableStudents.filter(s => !s.isGhost);
       for (const pair of pairs) {
@@ -323,7 +323,6 @@ class SeatingEngine {
         else score -= 1200; // Balanced: strong but not overwhelming
 
         if (this.rules.enforceInnerOuterRule) {
-            const isJS = !this.isHighSchool;
             const s1MustWall = this.isHighSchool ? (s1.grade === 12) : (s1.grade === 8);
             const s1MustCorridor = this.isHighSchool ? (s1.grade <= 10) : (s1.grade <= 6);
             const s2MustWall = this.isHighSchool ? (s2.grade === 12) : (s2.grade === 8);
@@ -553,7 +552,7 @@ class SeatingEngine {
     distributePairsList(normalPairs);
   }
 
-  private optimizeDeskArrangements(desks: Desk[], seats: Seat[]) {
+  private optimizeDeskArrangements(desks: Desk[]) {
     const desksWithStudents = desks.filter(d => d.left.student || d.right.student);
     const deskSwapIterations = desksWithStudents.length * 20;
 
@@ -618,7 +617,7 @@ class SeatingEngine {
 
         [d1, d2].forEach(d => {
             if (this.rules.enforceInnerOuterRule && (d.left.student || d.right.student)) {
-                let sA = d.left.student; let sB = d.right.student;
+                const sA = d.left.student; const sB = d.right.student;
                 if (!sA && sB && d.left.isOuter && this.needsWall(sB)) [d.left.student, d.right.student] = [d.right.student, d.left.student];
                 else if (sA && !sB && d.right.isOuter && this.needsWall(sA)) [d.left.student, d.right.student] = [d.right.student, d.left.student];
                 else if (sA && sB) {

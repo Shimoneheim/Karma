@@ -1,6 +1,8 @@
 import type { SalonLayout } from "./seatingAlgorithm";
 import {
+  safeGetItem,
   safeJsonParse,
+  safeRemoveItem,
   safeSetItem,
   sanitizeTemplates,
 } from "./dataSanitizers";
@@ -24,13 +26,7 @@ export function saveTemplate(name: string, salons: SalonLayout[]): void {
 }
 
 export function loadTemplates(): SalonTemplate[] {
-  try {
-    return sanitizeTemplates(
-      safeJsonParse(localStorage.getItem(TEMPLATES_STORAGE_KEY)),
-    );
-  } catch {
-    return [];
-  }
+  return sanitizeTemplates(safeJsonParse(safeGetItem(TEMPLATES_STORAGE_KEY)));
 }
 
 /** Overwrites all stored templates (used by backup import). Returns what was stored. */
@@ -46,5 +42,5 @@ export function deleteTemplate(id: string): void {
 }
 
 export function clearAllTemplates(): void {
-  localStorage.removeItem(TEMPLATES_STORAGE_KEY);
+  safeRemoveItem(TEMPLATES_STORAGE_KEY);
 }

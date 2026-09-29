@@ -18,20 +18,6 @@ function normalizePdfSettings(settings?: Partial<PdfSettings>): PdfSettings {
   };
 }
 
-function getImageFormatFromDataUrl(
-  dataUrl: string
-): "PNG" | "JPEG" | "WEBP" | null {
-  if (dataUrl.startsWith("data:image/png")) return "PNG";
-  if (
-    dataUrl.startsWith("data:image/jpeg") ||
-    dataUrl.startsWith("data:image/jpg")
-  ) {
-    return "JPEG";
-  }
-  if (dataUrl.startsWith("data:image/webp")) return "WEBP";
-  return null;
-}
-
 function formatExamDate(value: string): string {
   if (!value) return "";
   const parsed = new Date(value);
@@ -85,9 +71,6 @@ export function generateSeatingPDF(
   const examDateLabel = formatExamDate(pdfSettings.examDate);
   const titlePrefix = pdfSettings.examName.trim() || "SINAV OTURMA PLANI";
   const schoolLabel = pdfSettings.schoolName.trim() || "KURUM ADI BELİRTİLMEDİ";
-  const logoFormat = pdfSettings.logoDataUrl
-    ? getImageFormatFromDataUrl(pdfSettings.logoDataUrl)
-    : null;
 
   const derivedLayouts = deriveSalonsFromSeats(seats);
   const layouts =
