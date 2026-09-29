@@ -7,47 +7,15 @@ import {
   type Student,
 } from "@/utils/seatingAlgorithm";
 
-export interface PdfSettings {
-  schoolName: string;
-  examName: string;
-  examDate: string;
-  logoDataUrl: null,
-}
+import { defaultPdfSettings, type PdfSettings } from "./pdfSettings";
 
-const getTodayLocal = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-export const defaultPdfSettings: PdfSettings = {
-  schoolName: "",
-  examName: "",
-  examDate: getTodayLocal(),
-  logoDataUrl: null,
-};
+export { defaultPdfSettings, type PdfSettings };
 
 function normalizePdfSettings(settings?: Partial<PdfSettings>): PdfSettings {
   return {
     ...defaultPdfSettings,
     ...(settings ?? {}),
   };
-}
-
-function getImageFormatFromDataUrl(
-  dataUrl: string
-): "PNG" | "JPEG" | "WEBP" | null {
-  if (dataUrl.startsWith("data:image/png")) return "PNG";
-  if (
-    dataUrl.startsWith("data:image/jpeg") ||
-    dataUrl.startsWith("data:image/jpg")
-  ) {
-    return "JPEG";
-  }
-  if (dataUrl.startsWith("data:image/webp")) return "WEBP";
-  return null;
 }
 
 function formatExamDate(value: string): string {
@@ -103,9 +71,6 @@ export function generateSeatingPDF(
   const examDateLabel = formatExamDate(pdfSettings.examDate);
   const titlePrefix = pdfSettings.examName.trim() || "SINAV OTURMA PLANI";
   const schoolLabel = pdfSettings.schoolName.trim() || "KURUM ADI BELİRTİLMEDİ";
-  const logoFormat = pdfSettings.logoDataUrl
-    ? getImageFormatFromDataUrl(pdfSettings.logoDataUrl)
-    : null;
 
   const derivedLayouts = deriveSalonsFromSeats(seats);
   const layouts =

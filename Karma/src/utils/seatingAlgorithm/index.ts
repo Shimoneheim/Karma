@@ -4,3 +4,4 @@ export * from "./parser";
 export * from "./helpers";
 export * from "./scoring";
 export { assignSeats } from "./core";
+export { assignSeatsAsync } from "./async";

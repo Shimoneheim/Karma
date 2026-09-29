@@ -39,3 +39,18 @@ export function shuffle<T>(array: T[]): T[] {
   }
   return arr;
 }
+
+export type SeatIndex = Map<string, Seat>;
+
+export function seatKey(salon: number, column: number, row: number, side: Seat["side"]): string {
+  return `${salon}|${column}|${row}|${side}`;
+}
+
+/** O(1) seat lookup by position; replaces repeated linear `seats.find` scans. */
+export function buildSeatIndex(seats: Seat[]): SeatIndex {
+  const index: SeatIndex = new Map();
+  for (const seat of seats) {
+    index.set(seatKey(seat.salon, seat.column, seat.row, seat.side), seat);
+  }
+  return index;
+}

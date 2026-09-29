@@ -1,4 +1,11 @@
 import type { SalonLayout } from "./seatingAlgorithm";
+import {
+  safeGetItem,
+  safeJsonParse,
+  safeRemoveItem,
+  safeSetItem,
+  sanitizeTemplates,
+} from "./dataSanitizers";
 
 const TEMPLATES_STORAGE_KEY = "karma-salon-templates-v1";
 
@@ -15,23 +22,25 @@ export function saveTemplate(name: string, salons: SalonLayout[]): void {
     name,
     salons: salons.map(s => ({ ...s }))
   });
-  localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+  replaceTemplates(templates);
 }
 
 export function loadTemplates(): SalonTemplate[] {
-  try {
-    const raw = localStorage.getItem(TEMPLATES_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  return sanitizeTemplates(safeJsonParse(safeGetItem(TEMPLATES_STORAGE_KEY)));
+}
+
+/** Overwrites all stored templates (used by backup import). Returns what was stored. */
+export function replaceTemplates(templates: unknown): SalonTemplate[] {
+  const sanitized = sanitizeTemplates(templates);
+  safeSetItem(TEMPLATES_STORAGE_KEY, JSON.stringify(sanitized));
+  return sanitized;
 }
 
 export function deleteTemplate(id: string): void {
   const templates = loadTemplates().filter(t => t.id !== id);
-  localStorage.setItem(TEMPLATES_STORAGE_KEY, JSON.stringify(templates));
+  replaceTemplates(templates);
 }
 
 export function clearAllTemplates(): void {
-  localStorage.removeItem(TEMPLATES_STORAGE_KEY);
+  safeRemoveItem(TEMPLATES_STORAGE_KEY);
 }

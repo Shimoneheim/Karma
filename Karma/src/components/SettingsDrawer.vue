@@ -155,14 +155,19 @@
 
 <script setup lang="ts">
 import CustomDatePicker from "@/components/CustomDatePicker.vue";
+import type { AppSettings } from "@/utils/appSettings";
+import type { SalonLayout } from "@/utils/seatingAlgorithm";
+import type { SalonTemplate } from "@/utils/templateStorage";
 
 defineProps<{
   isOpen: boolean;
-  settings: any;
-  savedTemplates: any[];
+  savedTemplates: SalonTemplate[];
   selectedTemplateId: string;
-  salonCapacity: (salon: any) => number;
+  salonCapacity: (salon: SalonLayout) => number;
 }>();
+
+// Two-way bound settings object; the drawer edits its fields in place.
+const settings = defineModel<AppSettings>("settings", { required: true });
 
 defineEmits([
   'update:isOpen',

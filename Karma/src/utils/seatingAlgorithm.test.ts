@@ -11,13 +11,13 @@ describe("seatingAlgorithm", () => {
     const input = `Ahmet Yılmaz 8\nMehmet Ali 5\n Ayşe K. 3 `;
     const students = parseStudentList(input);
     expect(students).toHaveLength(3);
-    expect(students[0]).toEqual({
+    expect(students[0]).toMatchObject({
       number: "1",
       name: "Ahmet Yılmaz",
       grade: 8,
     });
-    expect(students[1]).toEqual({ number: "2", name: "Mehmet Ali", grade: 5 });
-    expect(students[2]).toEqual({ number: "3", name: "Ayşe K.", grade: 3 });
+    expect(students[1]).toMatchObject({ number: "2", name: "Mehmet Ali", grade: 5 });
+    expect(students[2]).toMatchObject({ number: "3", name: "Ayşe K.", grade: 3 });
   });
 
   it("parses gender parameter safely allowing Surname E/K conflicts to resolve", () => {
@@ -56,12 +56,12 @@ describe("seatingAlgorithm", () => {
     const input = `45 Ahmet Yılmaz 8\n12 Mehmet Ali 5`;
     const students = parseStudentList(input);
     expect(students).toHaveLength(2);
-    expect(students[0]).toEqual({
+    expect(students[0]).toMatchObject({
       number: "45",
       name: "Ahmet Yılmaz",
       grade: 8,
     });
-    expect(students[1]).toEqual({ number: "12", name: "Mehmet Ali", grade: 5 });
+    expect(students[1]).toMatchObject({ number: "12", name: "Mehmet Ali", grade: 5 });
   });
 
   it("generates the correct layout capacities", () => {

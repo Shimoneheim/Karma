@@ -1,5 +1,6 @@
 import type { Seat, Student, AssignmentRules } from "./types";
 import { defaultAssignmentRules, GHOST_STUDENT_GRADE } from "./constants";
+import { buildSeatIndex, seatKey } from "./helpers";
 
 export function calculateQualityScore(
   seats: Seat[],
@@ -24,6 +25,10 @@ export function calculateQualityScore(
     currentScore -= unassignedPenalty;
   }
   
+  const seatIndex = buildSeatIndex(seats);
+  const at = (salon: number, column: number, row: number, side: Seat["side"]) =>
+    seatIndex.get(seatKey(salon, column, row, side));
+
   let layoutViolations = 0;
   let studentsAssigned = 0;
   seats.forEach(seat => {
@@ -40,7 +45,7 @@ export function calculateQualityScore(
       if (isMustWall && !seat.isOuter) layoutViolations += 10;
       else if (isMustWall && seat.isOuter) layoutViolations -= 2; 
 
-      const neighbor = seats.find(s => s.salon === seat.salon && s.column === seat.column && s.row === seat.row && s.side !== seat.side);
+      const neighbor = at(seat.salon, seat.column, seat.row, seat.side === 'left' ? 'right' : 'left');
       const isJuniorAtWall = isMustCorridor && seat.isOuter;
       // Penalty ONLY if junior is on wall AND neighbor is occupied
       if (isJuniorAtWall && neighbor?.student && !neighbor.student.isGhost && 
@@ -60,19 +65,19 @@ export function calculateQualityScore(
     
     // Check Vertical separation for the highest grade
     if (rules.enforceGrade8VerticalRule && (student.grade === 8 || student.grade === 12)) {
-      const prevSeat = seats.find(s => s.salon === seat.salon && s.column === seat.column && s.row === seat.row - 1 && s.side === seat.side);
+      const prevSeat = at(seat.salon, seat.column, seat.row - 1, seat.side);
       if (prevSeat && prevSeat.student?.grade === student.grade) layoutViolations += 50; 
     }
     
     // Check Same grade side-by-side
     if (rules.avoidSameGradeSideBySide) {
-      const neighbor = seats.find(s => s.salon === seat.salon && s.column === seat.column && s.row === seat.row && s.side !== seat.side);
+      const neighbor = at(seat.salon, seat.column, seat.row, seat.side === 'left' ? 'right' : 'left');
       if (neighbor && neighbor.student?.grade === student.grade) layoutViolations += 50;
     }
 
     // Check Mixed Gender side-by-side
     if (rules.avoidMixedGenderSideBySide && student.gender) {
-      const neighbor = seats.find(s => s.salon === seat.salon && s.column === seat.column && s.row === seat.row && s.side !== seat.side);
+      const neighbor = at(seat.salon, seat.column, seat.row, seat.side === 'left' ? 'right' : 'left');
       if (neighbor && neighbor.student?.gender && neighbor.student.gender !== student.gender) layoutViolations += 35;
     }
 
@@ -84,7 +89,7 @@ export function calculateQualityScore(
         { r: seat.row + 1, c: seat.column, side: otherSide }
       ];
       diagonals.forEach(d => {
-        const neighbor = seats.find(s => s.salon === seat.salon && s.column === d.c && s.row === d.r && s.side === d.side);
+        const neighbor = at(seat.salon, d.c, d.r, d.side);
         if (neighbor && neighbor.student?.grade === student.grade) layoutViolations += 2;
       });
     }
@@ -97,14 +102,14 @@ export function calculateQualityScore(
         { r: seat.row + 1, c: seat.column, side: otherSide }
       ];
       diagonals.forEach(d => {
-        const neighbor = seats.find(s => s.salon === seat.salon && s.column === d.c && s.row === d.r && s.side === d.side);
+        const neighbor = at(seat.salon, d.c, d.r, d.side);
         if (neighbor && neighbor.student?.grade === student.grade) layoutViolations += 20; 
       });
     }
     
     // Check Same grade behind
     if (rules.avoidSameGradeBehind) {
-      const front = seats.find(s => s.salon === seat.salon && s.column === seat.column && s.row === seat.row - 1 && s.side === seat.side);
+      const front = at(seat.salon, seat.column, seat.row - 1, seat.side);
       if (front && front.student?.grade === student.grade) {
         layoutViolations += 5; 
       }

@@ -1,6 +1,6 @@
 import type { Student, Seat, AssignmentRules, AssignSeatsOptions, SalonLayout, AssignmentResult } from "./types";
 import { defaultAssignmentRules, defaultSalons, MAX_RETRIES_DEFAULT, MAX_RETRIES_LIMIT, GHOST_STUDENT_GRADE } from "./constants";
-import { generateSeats, shuffle } from "./helpers";
+import { buildSeatIndex, generateSeats, seatKey, shuffle, type SeatIndex } from "./helpers";
 import { calculateQualityScore } from "./scoring";
 
 interface Desk {
@@ -46,6 +46,11 @@ class SeatingEngine {
   private isHighSchool: boolean;
   private highestGrade: number;
   private gradeCounts: Record<number, number> = {};
+  private seatIndex: SeatIndex = new Map();
+
+  private seatAt(salon: number, column: number, row: number, side: Seat["side"]): Seat | undefined {
+    return this.seatIndex.get(seatKey(salon, column, row, side));
+  }
   
   constructor(private studentsInput: Student[], private options: AssignSeatsOptions = {}) {
     this.maxRetries = Math.min(options.maxRetries ?? MAX_RETRIES_DEFAULT, MAX_RETRIES_LIMIT);
@@ -79,6 +84,7 @@ class SeatingEngine {
 
     for (let retry = 0; retry < this.maxRetries; retry++) {
       const seats = generateSeats(this.layoutConfig);
+      this.seatIndex = buildSeatIndex(seats);
       const desks = this.buildDesks(seats);
       let availableStudents = shuffle([...this.studentsInput]);
 
@@ -114,11 +120,11 @@ class SeatingEngine {
       this.pairSwapOptimization(pairs);
 
       // 4. Distribute Pairs
-      this.distributeToFullyEmptyDesks(desks, pairs, seats);
+      this.distributeToFullyEmptyDesks(desks, pairs);
       this.distributeToSalons(desks, pairs);
 
       // 5. Post Optimization
-      this.optimizeDeskArrangements(desks, seats);
+      this.optimizeDeskArrangements(desks);
 
       const unassigned: Student[] = availableStudents.filter(s => !s.isGhost);
       for (const pair of pairs) {
@@ -149,16 +155,11 @@ class SeatingEngine {
 
   private buildDesks(seats: Seat[]): Desk[] {
     const desks: Desk[] = [];
-    const seatKeys = [...new Set(seats.map(s => `${s.salon}-${s.row}-${s.column}`))];
-    for (const key of seatKeys) {
-        const parts = key.split('-');
-        const salon = parseInt(parts[0], 10);
-        const row = parseInt(parts[1], 10);
-        const col = parseInt(parts[2], 10);
-        const left = seats.find(s => s.salon === salon && s.row === row && s.column === col && s.side === 'left');
-        const right = seats.find(s => s.salon === salon && s.row === row && s.column === col && s.side === 'right');
-        if (left && right) {
-            desks.push({ salon, row, column: col, left, right });
+    for (const left of seats) {
+        if (left.side !== 'left') continue;
+        const right = this.seatAt(left.salon, left.column, left.row, 'right');
+        if (right) {
+            desks.push({ salon: left.salon, row: left.row, column: left.column, left, right });
         }
     }
     return desks;
@@ -168,19 +169,19 @@ class SeatingEngine {
     if (!this.options.lockedSeats) return;
     
     this.options.lockedSeats.forEach(lockedSeat => {
-      const targetSeat = seats.find(s => s.salon === lockedSeat.salon && s.column === lockedSeat.column && s.row === lockedSeat.row && s.side === lockedSeat.side);
+      const targetSeat = this.seatAt(lockedSeat.salon, lockedSeat.column, lockedSeat.row, lockedSeat.side);
       if (targetSeat && lockedSeat.student && lockedSeat.isLocked) {
         targetSeat.student = lockedSeat.student;
         targetSeat.isLocked = true;
       }
     });
 
-    const lockedStudentNumbers = this.options.lockedSeats
+    const lockedStudentNumbers = new Set(this.options.lockedSeats
         .filter(seat => seat.student && seat.isLocked)
-        .map(seat => seat.student!.number);
+        .map(seat => seat.student!.number));
         
     for (let i = availableStudents.length - 1; i >= 0; i--) {
-        if (lockedStudentNumbers.includes(availableStudents[i].number)) {
+        if (lockedStudentNumbers.has(availableStudents[i].number)) {
             availableStudents.splice(i, 1);
         }
     }
@@ -322,7 +323,6 @@ class SeatingEngine {
         else score -= 1200; // Balanced: strong but not overwhelming
 
         if (this.rules.enforceInnerOuterRule) {
-            const isJS = !this.isHighSchool;
             const s1MustWall = this.isHighSchool ? (s1.grade === 12) : (s1.grade === 8);
             const s1MustCorridor = this.isHighSchool ? (s1.grade <= 10) : (s1.grade <= 6);
             const s2MustWall = this.isHighSchool ? (s2.grade === 12) : (s2.grade === 8);
@@ -394,53 +394,59 @@ class SeatingEngine {
     }
   }
 
-  private distributeToFullyEmptyDesks(desks: Desk[], pairs: [Student, Student][], seats: Seat[]) {
+  private distributeToFullyEmptyDesks(desks: Desk[], pairs: [Student, Student][]) {
     const emptyDesks = shuffle(desks.filter(d => !d.left.student && !d.right.student));
     
-    const isHardViolation = (desk: Desk, pair: [Student, Student]) => {
-        if (this.rules.enforceGrade8VerticalRule) {
-            const hasHighest = (pair[0].grade === this.highestGrade || pair[1].grade === this.highestGrade);
-            if (hasHighest) {
-                const leftPrev = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row - 1 && s.side === 'left');
-                const rightPrev = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row - 1 && s.side === 'right');
-                if (leftPrev?.student?.grade === this.highestGrade) return true;
-                if (rightPrev?.student?.grade === this.highestGrade) return true;
-                const leftNext = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row + 1 && s.side === 'left');
-                const rightNext = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row + 1 && s.side === 'right');
-                if (leftNext?.student?.grade === this.highestGrade) return true;
-                if (rightNext?.student?.grade === this.highestGrade) return true;
-            }
-        }
-        return false;
-    };
+    // Everything that depends only on the pair is computed once here instead of once per (desk, pair) combination.
+    const getSurname = (name: string) => name.trim().split(/\s+/).pop()?.toLowerCase();
+    const mustWall = (st: Student) => this.isHighSchool ? st.grade === 12 : st.grade === 8;
+    const mustCorridor = (st: Student) => this.isHighSchool ? st.grade <= 10 : st.grade <= 6;
+    const pairMeta = pairs.map(pair => {
+        const s1Surname = !pair[0].isGhost ? getSurname(pair[0].name) : null;
+        const s2Surname = !pair[1].isGhost ? getSurname(pair[1].name) : null;
+        return {
+            sameSurname: Boolean(s1Surname && s2Surname && s1Surname === s2Surname),
+            hasHighest: pair[0].grade === this.highestGrade || pair[1].grade === this.highestGrade,
+            wallCount: (mustWall(pair[0]) ? 1 : 0) + (mustWall(pair[1]) ? 1 : 0),
+            corridorCount: (mustCorridor(pair[0]) ? 1 : 0) + (mustCorridor(pair[1]) ? 1 : 0),
+        };
+    });
 
     for (const desk of emptyDesks) {
         if (pairs.length === 0) break;
         let bestScore = -Infinity;
         let bestPairIdx = -1;
+
+        // Neighbours depend only on the desk, so look them up once per desk rather than once per candidate pair.
+        const leftPrev = this.seatAt(desk.salon, desk.column, desk.row - 1, 'left');
+        const rightPrev = this.seatAt(desk.salon, desk.column, desk.row - 1, 'right');
+        const leftNext = this.seatAt(desk.salon, desk.column, desk.row + 1, 'left');
+        const rightNext = this.seatAt(desk.salon, desk.column, desk.row + 1, 'right');
+        const verticalNeighbors = [rightPrev, leftPrev, rightNext, leftNext];
+        const highestGradeAdjacent = verticalNeighbors.some(n => n?.student?.grade === this.highestGrade);
+        const salonCap = this.getSalonCapacity(desk.salon);
+        const deskHasWall = desk.left.isOuter || desk.right.isOuter;
+        const deskHasCorridor = !desk.left.isOuter || !desk.right.isOuter;
         
         for (let j=0; j<pairs.length; j++) {
             const pair = pairs[j];
             let score = 50;
             
-            if (isHardViolation(desk, pair)) score -= 1000;
+            const meta = pairMeta[j];
+            if (this.rules.enforceGrade8VerticalRule && highestGradeAdjacent && meta.hasHighest) {
+                score -= 1000;
+            }
             
             const isGhost0 = pair[0].isGhost;
             const isGhost1 = pair[1].isGhost;
             
             // Prioritize smaller salons for ghost-student pairs
             if (isGhost0 || isGhost1) {
-                const salonCap = this.getSalonCapacity(desk.salon);
                 // Heavy bonus for smaller rooms to encourage ghost placement there
                 score += (60 - salonCap) * 15; 
             }
             
             if (this.rules.avoidSameGradeBehind && (!isGhost0 || !isGhost1)) {
-                const leftPrev = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row - 1 && s.side === 'left');
-                const rightPrev = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row - 1 && s.side === 'right');
-                const leftNext = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row + 1 && s.side === 'left');
-                const rightNext = seats.find(s => s.salon === desk.salon && s.column === desk.column && s.row === desk.row + 1 && s.side === 'right');
-                
                 if (leftPrev?.student && !isGhost0 && leftPrev.student.grade === pair[0].grade) score -= 200;
                 if (rightPrev?.student && !isGhost1 && rightPrev.student.grade === pair[1].grade) score -= 200;
                 if (leftNext?.student && !isGhost0 && leftNext.student.grade === pair[0].grade) score -= 200;
@@ -448,45 +454,21 @@ class SeatingEngine {
             }
 
             if (this.rules.avoidSameGradeDiagonally && (!isGhost0 || !isGhost1)) {
-                const diagonals = [
-                    { r: desk.row - 1, c: desk.column, side: 'right' },
-                    { r: desk.row - 1, c: desk.column, side: 'left' },
-                    { r: desk.row + 1, c: desk.column, side: 'right' },
-                    { r: desk.row + 1, c: desk.column, side: 'left' }
-                ];
-                diagonals.forEach(d => {
-                    const neighbor = seats.find(s => s.salon === desk.salon && s.column === d.c && s.row === d.r && s.side === (d.side as any));
+                for (const neighbor of verticalNeighbors) {
                     if (neighbor && neighbor.student) {
                         if (!isGhost0 && neighbor.student.grade === pair[0].grade) score -= 15;
                         if (!isGhost1 && neighbor.student.grade === pair[1].grade) score -= 15;
                     }
-                });
+                }
             }
             
-            if (!isGhost0 || !isGhost1) {
-              const getSurname = (name: string) => name.trim().split(/\s+/).pop()?.toLowerCase();
-              const s1Surname = !isGhost0 ? getSurname(pair[0].name) : null;
-              const s2Surname = !isGhost1 ? getSurname(pair[1].name) : null;
-              if (s1Surname && s2Surname && s1Surname === s2Surname) score -= 100;
-            }
+            if (meta.sameSurname) score -= 100;
 
             if (this.rules.enforceInnerOuterRule) {
-                const isJS = !this.isHighSchool;
-                const s0MustWall = (isJS && pair[0].grade === 8) || (this.isHighSchool && pair[0].grade === 12);
-                const s0MustCorridor = (isJS && pair[0].grade <= 6) || (this.isHighSchool && pair[0].grade <= 10);
-                const s1MustWall = (isJS && pair[1].grade === 8) || (this.isHighSchool && pair[1].grade === 12);
-                const s1MustCorridor = (isJS && pair[1].grade <= 6) || (this.isHighSchool && pair[1].grade <= 10);
-
-                const deskHasWall = desk.left.isOuter || desk.right.isOuter;
-                const deskHasCorridor = !desk.left.isOuter || !desk.right.isOuter;
-
-                if (s0MustWall && !deskHasWall) score -= 100;
-                if (s1MustWall && !deskHasWall) score -= 100;
-                if (s0MustCorridor && !deskHasCorridor) score -= 100;
-                if (s1MustCorridor && !deskHasCorridor) score -= 100;
-                
-                if ((s0MustWall || s1MustWall) && deskHasWall) score += 50;
-                if ((s0MustCorridor || s1MustCorridor) && deskHasCorridor) score += 50;
+                if (!deskHasWall) score -= 100 * meta.wallCount;
+                if (!deskHasCorridor) score -= 100 * meta.corridorCount;
+                if (meta.wallCount > 0 && deskHasWall) score += 50;
+                if (meta.corridorCount > 0 && deskHasCorridor) score += 50;
             }
             
             score += Math.random() * 2;
@@ -499,6 +481,7 @@ class SeatingEngine {
         
         if (bestPairIdx !== -1) {
             const pickedPair = pairs.splice(bestPairIdx, 1)[0];
+            pairMeta.splice(bestPairIdx, 1);
             let studentA = pickedPair[0];
             let studentB = pickedPair[1];
             
@@ -569,7 +552,7 @@ class SeatingEngine {
     distributePairsList(normalPairs);
   }
 
-  private optimizeDeskArrangements(desks: Desk[], seats: Seat[]) {
+  private optimizeDeskArrangements(desks: Desk[]) {
     const desksWithStudents = desks.filter(d => d.left.student || d.right.student);
     const deskSwapIterations = desksWithStudents.length * 20;
 
@@ -605,7 +588,7 @@ class SeatingEngine {
             deskStudents.forEach(seat => {
                 if (!seat.student) return;
                 const matches = (rOff: number, cOff: number, side: 'left' | 'right') => {
-                    const n = seats.find(s => s.salon === seat.salon && s.column === seat.column + cOff && s.row === seat.row + rOff && s.side === side);
+                    const n = this.seatAt(seat.salon, seat.column + cOff, seat.row + rOff, side);
                     return n?.student?.grade === seat.student!.grade;
                 };
 
@@ -634,7 +617,7 @@ class SeatingEngine {
 
         [d1, d2].forEach(d => {
             if (this.rules.enforceInnerOuterRule && (d.left.student || d.right.student)) {
-                let sA = d.left.student; let sB = d.right.student;
+                const sA = d.left.student; const sB = d.right.student;
                 if (!sA && sB && d.left.isOuter && this.needsWall(sB)) [d.left.student, d.right.student] = [d.right.student, d.left.student];
                 else if (sA && !sB && d.right.isOuter && this.needsWall(sA)) [d.left.student, d.right.student] = [d.right.student, d.left.student];
                 else if (sA && sB) {
@@ -654,6 +637,7 @@ class SeatingEngine {
 
   public resolveDeadlocks(seats: Seat[], unassignedPool: Student[], emptySeats: Seat[]): boolean {
     let resolved = false;
+    this.seatIndex = buildSeatIndex(seats);
     for (const emptySeat of emptySeats) {
         if (emptySeat.student && emptySeat.isLocked) continue;
         if (unassignedPool.length === 0) break;
@@ -673,19 +657,19 @@ class SeatingEngine {
             if (!emptySeat.isOuter && isMustWall) score -= 500;
         }
         if (this.rules.enforceGrade8VerticalRule && student.grade === this.highestGrade) {
-            const prevSeat = seats.find(s => s.salon === emptySeat.salon && s.column === emptySeat.column && s.row === emptySeat.row - 1 && s.side === emptySeat.side);
+            const prevSeat = this.seatAt(emptySeat.salon, emptySeat.column, emptySeat.row - 1, emptySeat.side);
             if (prevSeat && prevSeat.student?.grade === this.highestGrade) score -= 50;
         }
         if (this.rules.avoidSameGradeSideBySide) {
-            const neighbor = seats.find(s => s.salon === emptySeat.salon && s.column === emptySeat.column && s.row === emptySeat.row && s.side !== emptySeat.side);
+            const neighbor = this.seatAt(emptySeat.salon, emptySeat.column, emptySeat.row, emptySeat.side === 'left' ? 'right' : 'left');
             if (neighbor && neighbor.student?.grade === student.grade) score -= 10;
         }
         if (this.rules.avoidMixedGenderSideBySide && student.gender) {
-            const neighbor = seats.find(s => s.salon === emptySeat.salon && s.column === emptySeat.column && s.row === emptySeat.row && s.side !== emptySeat.side);
+            const neighbor = this.seatAt(emptySeat.salon, emptySeat.column, emptySeat.row, emptySeat.side === 'left' ? 'right' : 'left');
             if (neighbor && neighbor.student?.gender && neighbor.student.gender !== student.gender) score -= 10;
         }
         if (this.rules.avoidSameGradeBehind) {
-            const front = seats.find(s => s.salon === emptySeat.salon && s.column === emptySeat.column && s.row === emptySeat.row - 1 && s.side === emptySeat.side);
+            const front = this.seatAt(emptySeat.salon, emptySeat.column, emptySeat.row - 1, emptySeat.side);
             if (front && front.student?.grade === student.grade) score -= 10;
         }
         if (this.rules.avoidSameGradeDiagonally) {
@@ -694,7 +678,7 @@ class SeatingEngine {
             { r: emptySeat.row + 1, c: emptySeat.column, side: emptySeat.side === 'left' ? 'right' : 'left' }
             ];
             diagonals.forEach(d => {
-            const neighbor = seats.find(s => s.salon === emptySeat.salon && s.column === d.c && s.row === d.r && s.side === d.side);
+            const neighbor = this.seatAt(emptySeat.salon, d.c, d.r, d.side as Seat["side"]);
             if (neighbor && neighbor.student?.grade === student.grade) score -= 5;
             });
         }

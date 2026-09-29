@@ -1,4 +1,7 @@
-import * as XLSX from 'xlsx';
+// Spreadsheet parsing is CPU-heavy and has had DoS bugs on crafted files, so cap input size.
+const MAX_SPREADSHEET_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_SHEET_ROWS = 5000;
 
 function normalizeLine(line: string): string | null {
   const trimmed = line.trim();
@@ -71,8 +74,10 @@ function toLineFromSheetRow(row: unknown[]): string | null {
   return `${number} ${name} ${grade}`;
 }
 
-function parseSpreadsheet(content: ArrayBuffer): string {
-  const workbook = XLSX.read(content, { type: 'array' });
+async function parseSpreadsheet(content: ArrayBuffer): Promise<string> {
+  // Loaded on demand so the (large) parser is not part of the initial bundle.
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.read(content, { type: 'array', sheetRows: MAX_SHEET_ROWS + 1 });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) return '';
 
@@ -93,8 +98,15 @@ export async function readStudentFile(file: File): Promise<string> {
   const lowerName = file.name.toLocaleLowerCase('tr-TR');
 
   if (lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls')) {
+    if (file.size > MAX_SPREADSHEET_BYTES) {
+      throw new Error('Dosya çok büyük (en fazla 5 MB).');
+    }
     const content = await file.arrayBuffer();
-    return normalizeInput(parseSpreadsheet(content));
+    return normalizeInput(await parseSpreadsheet(content));
+  }
+
+  if (file.size > MAX_TEXT_BYTES) {
+    throw new Error('Dosya çok büyük (en fazla 2 MB).');
   }
 
   const raw = await file.text();
