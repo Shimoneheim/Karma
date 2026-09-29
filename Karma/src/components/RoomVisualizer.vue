@@ -337,7 +337,10 @@ const toggleLock = (seat?: Seat) => {
 .columns-container {
   display: grid;
   gap: 80px; /* Spacious corridor on desktop */
-  justify-content: center;
+  /* Centered via auto margins rather than justify-content, which would push
+     the left edge of a wide room out of reach of horizontal scrolling. */
+  width: max-content;
+  margin: 0 auto;
 }
 
 .desk-column {
@@ -405,6 +408,13 @@ const toggleLock = (seat?: Seat) => {
 .seat:hover .lock-btn,
 .lock-btn.is-locked {
   opacity: 1;
+}
+
+/* Touch screens have no hover, so keep the lock buttons visible there. */
+@media (hover: none) {
+  .lock-btn {
+    opacity: 0.75;
+  }
 }
 
 .lock-btn.is-locked {
@@ -590,14 +600,18 @@ const toggleLock = (seat?: Seat) => {
   }
 
   .seat {
-    height: 54px;
-    min-width: 36px; /* Slightly narrower to accommodate wider corridors */
+    height: 60px;
+    min-width: 52px; /* Wide rooms scroll sideways instead of hiding names */
   }
 
   .seat-name {
-    display: none; /* Hide names on very small screens to avoid clutter */
+    font-size: 0.55rem;
   }
-  
+
+  .seat-meta {
+    display: none;
+  }
+
   .seat-number {
     font-size: 0.85rem;
     margin-bottom: 0;

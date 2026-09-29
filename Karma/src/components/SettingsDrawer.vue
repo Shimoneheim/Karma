@@ -132,8 +132,7 @@
         <textarea 
           v-model="settings.behavioralConstraints" 
           placeholder="Örn: Ali Veli, Ayşe Fatma (Her satıra bir ikili)"
-          class="minimal-textarea"
-          style="font-size: 0.85rem; height: 80px;"
+          class="minimal-textarea constraints-textarea"
         ></textarea>
         <p class="settings-help" style="margin-top: 4px;">Birbirinden uzak tutulması gereken öğrencileri virgülle ayırarak yazın.</p>
       </div>
