@@ -1,8 +1,10 @@
 ﻿@font-face {
   font-family: 'Hasklug';
-  src: url('/fonts/HasklugNerdFont-Regular.otf') format('opentype');
+  /* Subset (Latin + Turkish + punctuation) WOFF2 build of the original 2.2 MB OTF. */
+  src: url('/fonts/HasklugNerdFont-Regular.woff2') format('woff2');
   font-weight: normal;
   font-style: normal;
+  font-display: swap;
 }
 
 * {

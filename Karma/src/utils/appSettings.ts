@@ -4,24 +4,23 @@ import {
   type AssignmentRules,
   type SalonLayout,
 } from "./seatingAlgorithm";
-import { defaultPdfSettings, type PdfSettings } from "./pdfGenerator";
+import { defaultPdfSettings, type PdfSettings } from "./pdfSettings";
+import {
+  safeJsonParse,
+  safeSetItem,
+  sanitizePdfSettings,
+  sanitizeRules,
+  sanitizeSalons,
+} from "./dataSanitizers";
 
 const APP_SETTINGS_STORAGE_KEY = "karma-settings-v1";
+const MAX_CONSTRAINTS_LENGTH = 20_000;
 
 export interface AppSettings {
   pdf: PdfSettings;
   algorithm: AssignmentRules;
   salons: SalonLayout[];
   behavioralConstraints?: string;
-}
-
-function safeParse<T>(value: string | null, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
 }
 
 function defaultAppSettings(): AppSettings {
@@ -33,33 +32,39 @@ function defaultAppSettings(): AppSettings {
   };
 }
 
-export function loadAppSettings(): AppSettings {
-  if (typeof window === "undefined") return defaultAppSettings();
-
-  const parsed = safeParse<Partial<AppSettings>>(
-    localStorage.getItem(APP_SETTINGS_STORAGE_KEY),
-    {}
-  );
+/** Rebuilds settings from untrusted input (localStorage or an imported backup). */
+export function sanitizeAppSettings(value: unknown): AppSettings {
+  const parsed =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : {};
+  const salons = sanitizeSalons(parsed.salons);
 
   return {
     pdf: {
-      ...defaultPdfSettings,
-      ...(parsed.pdf ?? {}),
+      ...sanitizePdfSettings(parsed.pdf, defaultPdfSettings),
       examDate: defaultPdfSettings.examDate, // Always force today's date on load
     },
-    algorithm: {
-      ...defaultAssignmentRules,
-      ...(parsed.algorithm ?? {}),
-    },
+    algorithm: sanitizeRules(parsed.algorithm),
     salons:
-      parsed.salons && parsed.salons.length > 0
-        ? parsed.salons.map((salon) => ({ ...salon }))
+      salons.length > 0
+        ? salons
         : defaultSalons.map((salon) => ({ ...salon })),
-    behavioralConstraints: parsed.behavioralConstraints ?? "",
+    behavioralConstraints:
+      typeof parsed.behavioralConstraints === "string"
+        ? parsed.behavioralConstraints.slice(0, MAX_CONSTRAINTS_LENGTH)
+        : "",
   };
+}
+
+export function loadAppSettings(): AppSettings {
+  if (typeof window === "undefined") return defaultAppSettings();
+  return sanitizeAppSettings(
+    safeJsonParse(localStorage.getItem(APP_SETTINGS_STORAGE_KEY)),
+  );
 }
 
 export function saveAppSettings(settings: AppSettings): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  safeSetItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
 }

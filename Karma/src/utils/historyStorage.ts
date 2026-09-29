@@ -1,8 +1,13 @@
 import type { SalonLayout, Seat, Student } from "./seatingAlgorithm";
+import {
+  MAX_HISTORY_ITEMS,
+  safeJsonParse,
+  safeSetItem,
+  sanitizeHistory,
+} from "./dataSanitizers";
 
 const HISTORY_STORAGE_KEY = "karma-history-v1";
 const DRAFT_STORAGE_KEY = "karma-draft-v1";
-const MAX_HISTORY_ITEMS = 20;
 
 export interface SeatingHistoryItem {
   id: string;
@@ -15,21 +20,30 @@ export interface SeatingHistoryItem {
   deadlockResolved?: boolean;
 }
 
-function safeParse<T>(value: string | null, fallback: T): T {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 export function loadHistory(): SeatingHistoryItem[] {
   if (typeof window === "undefined") return [];
-  return safeParse<SeatingHistoryItem[]>(
-    localStorage.getItem(HISTORY_STORAGE_KEY),
-    []
+  return sanitizeHistory(
+    safeJsonParse(localStorage.getItem(HISTORY_STORAGE_KEY))
   );
+}
+
+/**
+ * Persists history, dropping the oldest entries if the browser storage quota
+ * is exceeded so a large plan never makes saving fail outright.
+ */
+function persistHistory(history: SeatingHistoryItem[]): SeatingHistoryItem[] {
+  let items = history.slice(0, MAX_HISTORY_ITEMS);
+  while (items.length > 0) {
+    if (safeSetItem(HISTORY_STORAGE_KEY, JSON.stringify(items))) return items;
+    items = items.slice(0, -1);
+  }
+  localStorage.removeItem(HISTORY_STORAGE_KEY);
+  return items;
+}
+
+/** Overwrites all stored history (used by backup import). Returns what was stored. */
+export function replaceHistory(history: unknown): SeatingHistoryItem[] {
+  return persistHistory(sanitizeHistory(history));
 }
 
 export function addHistoryEntry(
@@ -54,9 +68,7 @@ export function addHistoryEntry(
     deadlockResolved,
   };
 
-  const nextHistory = [entry, ...history].slice(0, MAX_HISTORY_ITEMS);
-  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
-  return nextHistory;
+  return persistHistory([entry, ...history]);
 }
 
 export function clearHistory(): void {
@@ -71,5 +83,5 @@ export function loadDraftInput(): string {
 
 export function saveDraftInput(value: string): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(DRAFT_STORAGE_KEY, value);
+  safeSetItem(DRAFT_STORAGE_KEY, value);
 }

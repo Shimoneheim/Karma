@@ -295,8 +295,9 @@ import RoomVisualizer from "@/components/RoomVisualizer.vue";
 import SettingsDrawer from "@/components/SettingsDrawer.vue";
 import {
   parseStudentList,
-  assignSeats,
+  assignSeatsAsync,
   generateSeats,
+  shuffle,
 } from "@/utils/seatingAlgorithm";
 import type {
   Student,
@@ -304,14 +305,18 @@ import type {
   SalonLayout,
   StudentConstraint,
 } from "@/utils/seatingAlgorithm";
-import { generateSeatingPDF } from "@/utils/pdfGenerator";
-import { loadAppSettings, saveAppSettings } from "@/utils/appSettings";
-import { readStudentFile } from "@/utils/fileImport";
+import {
+  loadAppSettings,
+  sanitizeAppSettings,
+  saveAppSettings,
+} from "@/utils/appSettings";
+import { sanitizeRawInput } from "@/utils/dataSanitizers";
 import {
   addHistoryEntry,
   clearHistory,
   loadDraftInput,
   loadHistory,
+  replaceHistory,
   saveDraftInput,
 } from "@/utils/historyStorage";
 import type { SeatingHistoryItem } from "@/utils/historyStorage";
@@ -320,6 +325,7 @@ import {
   saveTemplate,
   deleteTemplate,
   clearAllTemplates,
+  replaceTemplates,
 } from "@/utils/templateStorage";
 import type { SalonTemplate } from "@/utils/templateStorage";
 
@@ -518,16 +524,16 @@ const generatePlan = async () => {
         lockedSeatsMap.set(`${s.salon}-${s.column}-${s.row}-${s.side}`, s);
       });
 
+    const lockedNumbers = new Set(
+      [...lockedSeatsMap.values()].map((seat) => seat.student?.number),
+    );
+    const unlockedStudents = students.filter(
+      (st) => !lockedNumbers.has(st.number),
+    );
+
     const shuffleSteps = 10;
     for (let i = 0; i < shuffleSteps; i++) {
-      const tempStudents = [...students]
-        .filter((st) => {
-          for (const [key, seat] of lockedSeatsMap.entries()) {
-            if (seat.student?.number === st.number) return false;
-          }
-          return true;
-        })
-        .sort(() => Math.random() - 0.5);
+      const tempStudents = shuffle(unlockedStudents);
 
       let studentIndex = 0;
       const tempSeats = baseSeats.map((s) => {
@@ -557,15 +563,13 @@ const generatePlan = async () => {
       appSettings.value.behavioralConstraints,
     );
 
-    const { seats, unassigned, qualityScore, deadlockResolved } = assignSeats(
-      students,
-      {
+    const { seats, unassigned, qualityScore, deadlockResolved } =
+      await assignSeatsAsync(students, {
         rules: appSettings.value.algorithm,
         salons: sanitizedSalons,
         studentConstraints: constraints,
         lockedSeats: generatedSeats.value,
-      },
-    );
+      });
 
     generatedSeats.value = seats;
     generatedUnassigned.value = unassigned;
@@ -596,7 +600,12 @@ const generatePlan = async () => {
   }
 };
 
-const downloadPlan = () => {
+// jsPDF + the embedded font and the spreadsheet parser are large, so they are
+// loaded on first use instead of being part of the initial page load.
+const loadPdfGenerator = () => import("@/utils/pdfGenerator");
+
+const downloadPlan = async () => {
+  const { generateSeatingPDF } = await loadPdfGenerator();
   generateSeatingPDF(
     generatedSeats.value,
     generatedUnassigned.value,
@@ -605,7 +614,8 @@ const downloadPlan = () => {
   );
 };
 
-const downloadHistoryItem = (item: SeatingHistoryItem) => {
+const downloadHistoryItem = async (item: SeatingHistoryItem) => {
+  const { generateSeatingPDF } = await loadPdfGenerator();
   generateSeatingPDF(
     item.seats,
     item.unassigned,
@@ -720,6 +730,7 @@ const openFilePicker = () => {
 
 const importFromFile = async (file: File) => {
   try {
+    const { readStudentFile } = await import("@/utils/fileImport");
     const text = await readStudentFile(file);
     if (!text.trim()) {
       importMsg.value = "Dosyada geçerli öğrenci satırı bulunamadı.";
@@ -821,39 +832,43 @@ const exportDataJSON = () => {
   }, 5000);
 };
 
+const MAX_BACKUP_FILE_BYTES = 10 * 1024 * 1024;
+
 const handleImportJSON = (event: Event) => {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
   if (!file) return;
 
+  if (file.size > MAX_BACKUP_FILE_BYTES) {
+    alert("Yedek dosyası çok büyük (en fazla 10 MB).");
+    target.value = "";
+    return;
+  }
+
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
       const contents = e.target?.result as string;
-      const backupData = JSON.parse(contents);
+      const backupData: unknown = JSON.parse(contents);
+      if (typeof backupData !== "object" || backupData === null) {
+        throw new Error("Invalid backup");
+      }
+      const backup = backupData as Record<string, unknown>;
 
-      if (backupData.appSettings) {
+      // Every section is rebuilt field by field so a malformed or hostile
+      // backup cannot persist data that breaks the app on the next load.
+      if (backup.appSettings) {
         isInternalSettingsUpdate.value = true;
-        appSettings.value = backupData.appSettings;
+        appSettings.value = sanitizeAppSettings(backup.appSettings);
       }
-      if (backupData.historyItems) {
-        historyItems.value = backupData.historyItems;
-        // re-save to localstorage manually
-        localStorage.setItem(
-          "seatingHistory",
-          JSON.stringify(backupData.historyItems),
-        );
+      if (backup.historyItems) {
+        historyItems.value = replaceHistory(backup.historyItems);
       }
-      if (backupData.savedTemplates) {
-        savedTemplates.value = backupData.savedTemplates;
-        localStorage.setItem(
-          "salonTemplates",
-          JSON.stringify(backupData.savedTemplates),
-        );
+      if (backup.savedTemplates) {
+        savedTemplates.value = replaceTemplates(backup.savedTemplates);
       }
-      if (backupData.rawInput) {
-        rawInput.value = backupData.rawInput;
-        saveDraftInput(backupData.rawInput);
+      if (typeof backup.rawInput === "string" && backup.rawInput) {
+        rawInput.value = sanitizeRawInput(backup.rawInput);
       }
 
       successMsg.value = "Veriler başarıyla içe aktarıldı!";
@@ -862,14 +877,14 @@ const handleImportJSON = (event: Event) => {
       }, 5000);
       isPlanReady.value = false;
 
-      // Clear input
-      target.value = "";
-
       setTimeout(() => {
         isInternalSettingsUpdate.value = false;
       }, 0);
     } catch (err) {
       alert("Yedek dosyası okunurken hata oluştu. Geçersiz JSON formatı.");
+    } finally {
+      // Clear input so the same file can be selected again
+      target.value = "";
     }
   };
   reader.readAsText(file);
